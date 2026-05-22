@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "motion/react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Eye, Phone, Mail, Linkedin, Send, MapPin, ExternalLink, Calendar, Award } from "lucide-react";
 import BackgroundEffect from "./components/BackgroundEffect";
 import Navbar from "./components/Navbar";
@@ -11,6 +11,8 @@ import CosmicButton from "./components/CosmicButton";
 import CustomCursor from "./components/CustomCursor";
 import CertificateMiniPreview from "./components/CertificateMiniPreview";
 import CertificateModal from "./components/CertificateModal";
+import supabase, { hasSupabase } from "./lib/supabase";
+import { isFirebaseConfigured, sendFirebaseMessage } from "./lib/firebase";
 
 const PROJECTS = [
   { 
@@ -160,6 +162,82 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [selectedCert, setSelectedCert] = useState<any>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  const [contactName, setContactName] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactMessage, setContactMessage] = useState("");
+  const [contactStatus, setContactStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
+  const [contactFeedback, setContactFeedback] = useState<string | null>(null);
+
+  const contactIsSending = contactStatus === "sending";
+
+  const handleContactSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setContactFeedback(null);
+
+    const name = contactName.trim();
+    const email = contactEmail.trim();
+    const message = contactMessage.trim();
+
+    if (!name || !email || !message) {
+      setContactStatus("error");
+      setContactFeedback("Please fill in name, email, and message before sending.");
+      return;
+    }
+
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailPattern.test(email)) {
+      setContactStatus("error");
+      setContactFeedback("Please enter a valid email address.");
+      return;
+    }
+
+    if (!isFirebaseConfigured && !hasSupabase) {
+      setContactStatus("error");
+      setContactFeedback("No backend is configured. Add Firebase or Supabase env vars in Vite.");
+      return;
+    }
+
+    setContactStatus("sending");
+
+    const errors: string[] = [];
+
+    if (isFirebaseConfigured) {
+      try {
+        await sendFirebaseMessage({ name, email, message });
+      } catch (error: any) {
+        errors.push(`Firebase: ${error?.message ?? "Submission failed."}`);
+      }
+    }
+
+    if (hasSupabase && supabase) {
+      try {
+        const { error } = await supabase.from("support_messages").insert({
+          name,
+          email,
+          message,
+          created_at: new Date().toISOString(),
+        });
+        if (error) {
+          throw error;
+        }
+      } catch (error: any) {
+        errors.push(`Supabase: ${error?.message ?? "Submission failed."}`);
+      }
+    }
+
+    if (errors.length > 0) {
+      setContactStatus("error");
+      setContactFeedback(errors.join(" | "));
+      return;
+    }
+
+    setContactStatus("success");
+    setContactFeedback("Message sent successfully! Thank you.");
+    setContactName("");
+    setContactEmail("");
+    setContactMessage("");
+  };
 
   return (
     <div className="bg-black selection:bg-[#10b981]/30 selection:text-white text-white min-h-screen transition-all duration-700">
@@ -640,7 +718,7 @@ export default function App() {
                         whileInView="visible"
                         viewport={{ once: true }}
                         className="p-10 rounded-[24px] bg-[#020c08]/85 backdrop-blur-md border border-[#10b981]/20 shadow-lg space-y-6"
-                        onSubmit={(e) => e.preventDefault()}
+                        onSubmit={handleContactSubmit}
                       >
                         {/* Name */}
                         <motion.div variants={contactItemVariants}>
@@ -650,6 +728,8 @@ export default function App() {
                           <input 
                             type="text" 
                             placeholder="John Doe" 
+                            value={contactName}
+                            onChange={(event) => setContactName(event.target.value)}
                             className="w-full bg-black/60 border border-[#10b981]/20 rounded-xl px-4.5 py-4 text-white placeholder-white/20 focus:bg-[#020c08] focus:border-[#10b981]/60 focus:ring-4 focus:ring-[#10b981]/10 outline-none transition-all duration-300 ease-in-out"
                           />
                         </motion.div>
@@ -662,6 +742,8 @@ export default function App() {
                           <input 
                             type="email" 
                             placeholder="john@example.com" 
+                            value={contactEmail}
+                            onChange={(event) => setContactEmail(event.target.value)}
                             className="w-full bg-black/60 border border-[#10b981]/20 rounded-xl px-4.5 py-4 text-white placeholder-white/20 focus:bg-[#020c08] focus:border-[#10b981]/60 focus:ring-4 focus:ring-[#10b981]/10 outline-none transition-all duration-300 ease-in-out"
                           />
                         </motion.div>
@@ -674,17 +756,32 @@ export default function App() {
                           <textarea 
                             rows={4}
                             placeholder="Tell me about your project..." 
+                            value={contactMessage}
+                            onChange={(event) => setContactMessage(event.target.value)}
                             className="w-full bg-black/60 border border-[#10b981]/20 rounded-xl px-4.5 py-4 text-white placeholder-white/20 focus:bg-[#020c08] focus:border-[#10b981]/60 focus:ring-4 focus:ring-[#10b981]/10 outline-none transition-all duration-300 ease-in-out resize-none min-h-[140px]"
                           />
                         </motion.div>
  
-                        {/* Submit */}
+                        {contactFeedback && (
+                          <motion.div variants={contactItemVariants}>
+                            <div
+                              className={`rounded-2xl border px-4 py-3 text-sm ${
+                                contactStatus === "success"
+                                  ? "border-[#10b981]/30 bg-[#0f2b18] text-[#a8f7c7]"
+                                  : "border-[#f87171]/20 bg-[#330b0b] text-[#fda4af]"
+                              }`}
+                            >
+                              {contactFeedback}
+                            </div>
+                          </motion.div>
+                        )}
                         <motion.div variants={contactItemVariants}>
                           <button 
                             type="submit"
-                            className="w-full py-4 px-8 rounded-xl font-bold text-black bg-[#10b981] hover:bg-[#20e098] border border-transparent cursor-pointer hover:-translate-y-0.5 shadow-[0_4px_15px_rgba(16,185,129,0.3)] hover:shadow-[0_4px_22px_rgba(16,185,129,0.55)] transition-all duration-300 ease-in-out flex items-center justify-center gap-2"
+                            disabled={contactIsSending}
+                            className="w-full py-4 px-8 rounded-xl font-bold text-black bg-[#10b981] hover:bg-[#20e098] border border-transparent disabled:opacity-50 disabled:cursor-not-allowed hover:-translate-y-0.5 shadow-[0_4px_15px_rgba(16,185,129,0.3)] hover:shadow-[0_4px_22px_rgba(16,185,129,0.55)] transition-all duration-300 ease-in-out flex items-center justify-center gap-2"
                           >
-                            <span>Send Message</span>
+                            <span>{contactIsSending ? "Sending..." : "Send Message"}</span>
                             <Send className="w-4 h-4" />
                           </button>
                         </motion.div>

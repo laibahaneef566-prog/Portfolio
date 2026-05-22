@@ -1,0 +1,8 @@
+﻿## main...origin/main [ahead 1]
+ M package.json
+ M src/App.tsx
+ M src/lib/supabase.ts
+?? .env.example
+?? git_remote.txt
+?? git_status.txt
+?? src/lib/firebase.ts
