@@ -179,20 +179,41 @@ export default function App() {
     const email = contactEmail.trim();
     const message = contactMessage.trim();
 
-    if (!name || !email || !message) {
+    console.log("--- Contact Form Submission Initiated ---");
+    console.log("Input values:", { name, email, message });
+
+    // 2. Validation for all fields (name: min 2, email: valid format, message: min 10)
+    if (name.length < 2) {
+      console.warn("Validation failed: Name is too short (min 2 characters).");
       setContactStatus("error");
-      setContactFeedback("Please fill in name, email, and message before sending.");
+      setContactFeedback("Name must be at least 2 characters.");
       return;
     }
 
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailPattern.test(email)) {
+      console.warn("Validation failed: Invalid email format.");
       setContactStatus("error");
       setContactFeedback("Please enter a valid email address.");
       return;
     }
 
+    if (message.length < 10) {
+      console.warn("Validation failed: Message is too short (min 10 characters).");
+      setContactStatus("error");
+      setContactFeedback("Message must be at least 10 characters.");
+      return;
+    }
+
+    // Checking client availability and Supabase URL
+    console.log("Backend Connection Status Check:", { 
+      hasSupabase, 
+      supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
+      isFirebaseConfigured 
+    });
+
     if (!isFirebaseConfigured && !hasSupabase) {
+      console.error("Backend config error: Neither Supabase nor Firebase is configured.");
       setContactStatus("error");
       setContactFeedback("No backend is configured. Add Firebase or Supabase env vars in Vite.");
       return;
@@ -201,28 +222,43 @@ export default function App() {
     setContactStatus("sending");
 
     const errors: string[] = [];
+    const payload = {
+      name,
+      email,
+      message,
+      created_at: new Date().toISOString(),
+    };
 
     if (isFirebaseConfigured) {
       try {
-        await sendFirebaseMessage({ name, email, message });
+        console.log("Sending payload to Firebase...");
+        await sendFirebaseMessage(payload);
+        console.log("Firebase submission successful.");
       } catch (error: any) {
+        console.error("Firebase error details:", error);
         errors.push(`Firebase: ${error?.message ?? "Submission failed."}`);
       }
     }
 
     if (hasSupabase && supabase) {
       try {
-        const { error } = await supabase.from("support_messages").insert({
-          name,
-          email,
-          message,
-          created_at: new Date().toISOString(),
-        });
+        // Log the exact JSON payload being sent before submission (Requirement 3)
+        console.log("Sending payload to Supabase table 'support_messages':", JSON.stringify(payload, null, 2));
+        
+        // 5. Verification checks: inserting into table support_messages
+        const { data, error } = await supabase
+          .from("support_messages")
+          .insert([payload]);
+
         if (error) {
+          console.error("Supabase returned an error during insert:", error);
           throw error;
         }
+
+        console.log("Supabase insert completed successfully. Response:", data);
       } catch (error: any) {
-        errors.push(`Supabase: ${error?.message ?? "Submission failed."}`);
+        console.error("Supabase integration exception caught:", error);
+        errors.push(`Supabase: ${error?.message ?? "Submission failed. Please verify RLS policies."}`);
       }
     }
 
@@ -232,6 +268,8 @@ export default function App() {
       return;
     }
 
+    // 4. Success state & 7. Clear form on success
+    console.log("Submission process succeeded. Resetting form state.");
     setContactStatus("success");
     setContactFeedback("Message sent successfully! Thank you.");
     setContactName("");
@@ -760,6 +798,26 @@ export default function App() {
                             onChange={(event) => setContactMessage(event.target.value)}
                             className="w-full bg-black/60 border border-[#10b981]/20 rounded-xl px-4.5 py-4 text-white placeholder-white/20 focus:bg-[#020c08] focus:border-[#10b981]/60 focus:ring-4 focus:ring-[#10b981]/10 outline-none transition-all duration-300 ease-in-out resize-none min-h-[140px]"
                           />
+                        </motion.div>
+
+                        {/* 6. Live JSON Debug Section */}
+                        <motion.div variants={contactItemVariants} className="border border-[#10b981]/10 bg-black/40 rounded-xl p-4 font-mono text-[10px] text-white/50 space-y-2">
+                          <div className="flex justify-between items-center text-[#10b981] font-bold text-[9px] uppercase tracking-widest border-b border-[#10b981]/10 pb-1.5">
+                            <span>Debug: Payload Preview</span>
+                            <span className="animate-pulse w-1.5 h-1.5 rounded-full bg-[#10b981]" />
+                          </div>
+                          <pre className="overflow-x-auto whitespace-pre-wrap select-all">
+                            {JSON.stringify(
+                              {
+                                name: contactName.trim(),
+                                email: contactEmail.trim(),
+                                message: contactMessage.trim(),
+                                created_at: "[Generated on Submit]"
+                              },
+                              null,
+                              2
+                            )}
+                          </pre>
                         </motion.div>
  
                         {contactFeedback && (
